@@ -3,16 +3,15 @@
 
 use std::cmp;
 
+// max element size at each slot
+const M: usize = 32;
+// Extra search step allowed
+const E_MAX: usize = 2;
+
 trait RrbElement: Clone + PartialEq + std::fmt::Debug {}
 
 // blanket implementation for all types that meet the requirement
 impl<T> RrbElement for T where T: Clone + PartialEq + std::fmt::Debug {}
-// max element size at each slot
-// power of 2
-const M: usize = 4;  
-
-// Extra search step allowed
-const E_MAX: usize = 2;
 
 fn bit_width(m: usize) -> usize {
     (m as f64).log2() as usize
@@ -443,6 +442,25 @@ mod tests {
         let rrbs = arrs.iter().map(|arr| { from_array(arr.clone())}).collect();
         let merged = concat_many(rrbs);
         assert_equal_elements(merged, arrs.into_iter().flatten().collect());
+    }
+
+    #[test]
+    fn test_distributed_slot_with_remainer() {
+        let vec = from_array(array_of_size(17));
+
+        let left = concat_many(vec![vec.clone(), vec.clone(), vec.clone(), vec.clone(), vec.clone(), vec.clone()]);
+        let left_items = match left.root {
+            Node::Branch(ref b) => b.items.iter().map(|i| i.length()).collect::<Vec<usize>>(),
+            Node::Leaf(l) => unreachable!(),
+        };
+        assert_eq!(left_items, vec![17, 17, 17, 17, 17, 17]);
+
+        let merged = concat(left, vec);
+        let merged_items = match merged.root {
+            Node::Branch(b) => b.items.iter().map(|i| i.length()).collect::<Vec<usize>>(),
+            Node::Leaf(l) => unreachable!(),
+        };
+        assert_eq!(merged_items, vec![32, 19, 17, 17, 17, 17]);
     }
 
     fn array_of_size(size: usize) -> Vec<String> {
