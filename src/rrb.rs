@@ -5,7 +5,7 @@ use std::cmp;
 
 // max element size at each slot
 const M: usize = 32;
-// Extra search step allowed
+// extra search step allowed
 const E_MAX: usize = 2;
 
 trait RrbElement: Clone + PartialEq + std::fmt::Debug {}
@@ -95,11 +95,13 @@ fn branch<T: RrbElement>(height: usize, items: Vec<Node<T>>) -> Branch<T> {
 }
 
 fn calc_sizes<T: RrbElement>(items: &Vec<Node<T>>) -> Vec<usize> {
+    let mut sizes = Vec::with_capacity(items.len());
     let mut prev = 0;
-    items.iter().map(| i | {
+    for i in items {
         prev += size_of(i);
-        prev
-    }).collect()
+        sizes.push(prev);
+    }
+    sizes
 }
 
 fn size_of<T: RrbElement>(tree: &Node<T>) -> usize {
@@ -131,7 +133,7 @@ fn append<T: RrbElement>(xs: &Rrb<T>, x: T) -> Rrb<T> {
     match appended {
         Some(n) => Rrb { count: xs.count + 1, root: n },
         None => {
-            let grown = Node::Branch(branch(xs.root.height() + 1, [xs.root.clone()].to_vec()));
+            let grown = Node::Branch(branch(xs.root.height() + 1, vec![xs.root.clone()]));
             let appended = append_node(&grown, x).unwrap(); // can't fail
             Rrb { count: xs.count + 1, root: appended }
         }
@@ -172,9 +174,9 @@ fn append_node<T: RrbElement>(xs: &Node<T>, x: T) -> Option<Node<T>> {
 // Create a tree of `height` with a single element `x`
 fn tree_of_height<T: RrbElement>(height: usize, x: T) -> Node<T> {
     if height  == 0 {
-        Node::Leaf(leaf([x].to_vec()))
+        Node::Leaf(leaf(vec![x]))
     } else {
-        Node::Branch(branch(height, [tree_of_height(height - 1, x)].to_vec()))
+        Node::Branch(branch(height, vec![tree_of_height(height - 1, x)]))
     }
 }
 
@@ -214,14 +216,14 @@ fn find_slot(idx: usize, height: usize, sizes: &Vec<usize>) -> usize {
     let mut slot = idx >> (w * height);
     // skip slots until we reach the first with a cumulative size greater
     // than our index - this is where our element will be
-    while sizes[slot]  <= idx {
+    while slot < sizes.len() && sizes[slot]  <= idx {
         slot += 1;
     }
     slot
 }
 
 // Concat two RRB trees into a single balanced RRB tree
-fn concat<T: RrbElement>(left: Rrb<T>, right: Rrb<T>) -> Rrb<T> {
+fn concat<T: RrbElement>(left: &Rrb<T>, right: &Rrb<T>) -> Rrb<T> {
     // create a single, balanced node containing all items from left and right
     let merged = concat_nodes(&left.root, &right.root, true);
     // there may be a redundant extra level so we chop it off if necessary
@@ -268,7 +270,7 @@ fn concat_nodes<T: RrbElement>(left: &Node<T>, right: &Node<T>, top: bool) -> Br
             return branch(1,  vec![Node::Leaf(leaf(left_items.iter().chain(right_items.iter()).cloned().collect()))]);
         } else {
             // this may not be balanced, but the outer recursive step will rebalance it later
-            return branch(1, [left.clone(), right.clone()].to_vec());
+            return branch(1, vec![left.clone(), right.clone()]);
         }
     }
 
@@ -314,13 +316,13 @@ fn rebalance<T: RrbElement>(left: Option<Branch<T>>, middle: Branch<T>, right: O
         return if top == true  {
             balanced
         } else {
-            branch(balanced.height+1, [Node::Branch(balanced)].to_vec())
+            branch(balanced.height+1, vec![Node::Branch(balanced)])
         }
     } else {
         // distribute the(up to 2M) items across 2 nodes in a new branch
         let lbranch = branch(balanced.height, balanced.items[0..M].to_vec());
         let rbranch = branch(balanced.height, balanced.items[M..].to_vec());
-        return branch(balanced.height+1, [Node::Branch(lbranch), Node::Branch(rbranch)].to_vec());
+        return branch(balanced.height+1, vec![Node::Branch(lbranch), Node::Branch(rbranch)]);
     }
 }
 
@@ -470,7 +472,7 @@ mod tests {
         };
         assert_eq!(left_items, vec![17, 17, 17, 17, 17, 17]);
 
-        let merged = concat(left, vec);
+        let merged = concat(&left, &vec);
         let merged_items = match merged.root {
             Node::Branch(b) => b.items.iter().map(|i| i.length()).collect::<Vec<usize>>(),
             Node::Leaf(l) => unreachable!(),
@@ -570,7 +572,7 @@ mod tests {
         }
         let first = rrbs[0].clone();
         let output = rrbs.into_iter().skip(1).fold(first, |acc, rrb| {
-            concat(acc, rrb)
+            concat(&acc,&rrb)
         });
         output
     }
