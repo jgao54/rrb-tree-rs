@@ -5,3 +5,6 @@ edition = "2021"
 
 [lib]
 path = "src/rrb.rs"
+
+[dependencies]
+quickcheck = "1.0"

@@ -434,6 +434,21 @@ fn execute_concat_plan<T: RrbElement>(node: &Branch<T>, plan: &Vec<usize>) -> Br
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quickcheck::{Arbitrary, QuickCheck, Gen};
+
+    #[derive(Clone, Debug)]
+    struct CustomVec(Vec<usize>);
+
+    impl Arbitrary for CustomVec {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let size = usize::arbitrary(g) % 10 + 1;  // 1 - 10
+            let mut vec = Vec::with_capacity(size);
+            for _ in 0..size {
+                vec.push(usize::arbitrary(g) % 1024 + 1);  // 1 - 1024
+            }
+            CustomVec(vec)
+        }
+    }
 
     #[test]
     fn test_branch_with_height_gt_1() {
@@ -441,7 +456,7 @@ mod tests {
         let arrs: Vec<Vec<String>> = sizes.iter().map(|&n| { array_of_size(n as usize)}).collect();
         let rrbs = arrs.iter().map(|arr| { from_array(arr.clone())}).collect();
         let merged = concat_many(rrbs);
-        assert_equal_elements(merged, arrs.into_iter().flatten().collect());
+        assert!(assert_equal_elements(merged, arrs.into_iter().flatten().collect()));
     }
 
     #[test]
@@ -461,6 +476,69 @@ mod tests {
             Node::Leaf(l) => unreachable!(),
         };
         assert_eq!(merged_items, vec![32, 19, 17, 17, 17, 17]);
+    }
+
+    #[test]
+    fn order_of_elements_is_maintained() {
+        fn _test_oder_of_elements_is_maintained(arr :Vec<usize>) -> bool {
+            let arrs: Vec<Vec<String>> = arr.iter().map(|&i| array_of_size(i)).collect();
+            let rrbs = arrs.iter().map(|a: &Vec<String>| from_array(a.clone())).collect();
+            let merged = concat_many(rrbs);
+            let arrs_flat = arrs.into_iter().flatten().collect();
+            let res = assert_equal_elements(merged, arrs_flat);
+            res
+        }
+
+        fn prop(v: CustomVec) -> bool {
+            _test_oder_of_elements_is_maintained(v.0)
+        }
+        QuickCheck::new().tests(100).quickcheck(prop as fn(CustomVec) -> bool);
+    }
+
+    #[test]
+    fn search_step_invariant_is_maintained() {
+        fn _test_search_step_invariant_is_maintained(arr: Vec<usize>) -> bool {
+            let arrs: Vec<Vec<String>> = arr.iter().map(|&i| array_of_size(i)).collect();
+            let rrbs = arrs.iter().map(|a: &Vec<String>| from_array(a.clone())).collect();
+            let merged = concat_many(rrbs);
+            let res = assert_search_step_invariant(&merged.root);
+            res
+        }
+
+        fn prop(v: CustomVec) -> bool {
+            _test_search_step_invariant_is_maintained(v.0)
+        }
+
+        QuickCheck::new().tests(100).quickcheck(prop as fn(CustomVec) -> bool);
+    }
+
+    #[test]
+    fn height_invariant_is_maintained() {
+        fn _test_search_step_invariant_is_maintained(arr: Vec<usize>) -> bool {
+            let arrs = arr.iter().map(|&i| array_of_size(i)).collect::<Vec<Vec<String>>>();
+            let rrbs = arrs.iter().map(|a: &Vec<String>| from_array(a.clone())).collect();
+            let merged = concat_many(rrbs);
+
+            let length= arrs.into_iter().flatten().collect::<Vec<String>>().len();
+            let height_least_dense =  if length > 0 {
+                ((length as f64).ln() / ((M - E_MAX) as f64).ln()) as usize
+             } else {
+                0
+             };
+             let height_most_dense = if length > 0 {
+            ((length as f64).ln() / (M as f64).ln() - 1.0).ceil() as usize
+             } else {
+                0
+             };
+             let res = merged.root.height() <= height_least_dense && merged.root.height() >= height_most_dense;
+            res
+        }
+
+        fn prop(v: CustomVec) -> bool {
+            _test_search_step_invariant_is_maintained(v.0)
+        }
+
+        QuickCheck::new().tests(100).quickcheck(prop as fn(CustomVec) -> bool);
     }
 
     fn array_of_size(size: usize) -> Vec<String> {
@@ -497,11 +575,37 @@ mod tests {
         output
     }
 
-    fn assert_equal_elements<T: RrbElement>(rrb: Rrb<T>, v: Vec<T>) {
-        assert_eq!(rrb.count,  v.len());
-        for (idx, item) in v.iter().enumerate() {
-            assert_eq!(&get(&rrb, idx).unwrap(), item);
+    fn assert_equal_elements<T: RrbElement>(rrb: Rrb<T>, v: Vec<T>) -> bool {
+        if rrb.count !=  v.len() {
+            return false
         }
-        
+        for (idx, item) in v.iter().enumerate() {
+            if &get(&rrb, idx).unwrap() != item {
+                return false
+            }
+        }
+        true
+    }
+
+    fn assert_search_step_invariant<T: RrbElement>(node: &Node<T>) -> bool {
+        match node {
+            Node::Leaf(_) => true,
+            Node::Branch(b) => {
+                let s = b.items.iter().fold(0, |acc, branch| { acc + branch.length()});
+                let opt = (s as f64 / M as f64).ceil() as usize;
+                let limit = opt + E_MAX;
+                if node.length() > limit {
+                    return false
+                }
+                if node.height() > 1 {
+                    for ref i in b.items.clone() {
+                        if !assert_search_step_invariant(i) {
+                            return false
+                        }
+                    }
+                }
+                true
+            }
+        }
     }
 }
